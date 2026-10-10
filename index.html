@@ -1,0 +1,97 @@
+<!doctype html>
+<!-- index.html — the web version of the ASCII worm. URL options: ?worms=1..3 and ?color=red,purple,cyan (names or hex). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Worm</title>
+<meta name="description" content="A 3D worm made of text characters crawling across the screen.">
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #glow { filter: blur(4px); opacity: 0.7; }
+</style>
+</head>
+<body>
+<canvas id="glow" aria-hidden="true"></canvas>
+<canvas id="worm" role="img" aria-label="A worm made of text characters crawling across the screen"></canvas>
+<script src="worm-core.js"></script>
+<script>
+  const { RAMP, ASPECT, createWorm, advance, render, wormColors, shade } = window.WormCore;
+  const FONT_PX = 14;
+  const MAX_WORMS = 3;
+
+  const params = new URLSearchParams(location.search);
+  const count = Math.min(MAX_WORMS, Math.max(1, Math.abs(parseInt(params.get('worms'), 10)) || 1));
+  let colors;
+  try {
+    colors = wormColors(params.get('color'), count);
+  } catch (error) {
+    console.warn(error.message);
+    colors = wormColors('', count);
+  }
+  // CSS colour per [worm][level].
+  const STYLES = colors.map((rgb) => RAMP.split('').map((_, level) => `rgb(${shade(rgb, Math.max(2, level)).join(',')})`));
+
+  const canvas = document.getElementById('worm');
+  const glow = document.getElementById('glow');
+  const ctx = canvas.getContext('2d');
+  const glowCtx = glow.getContext('2d');
+  let cellW, cellH, cols, rows;
+
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    for (const c of [canvas, glow]) {
+      c.width = Math.round(innerWidth * dpr);
+      c.height = Math.round(innerHeight * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${FONT_PX}px ui-monospace, Menlo, Consolas, monospace`;
+    ctx.textBaseline = 'middle';
+    cellW = ctx.measureText('@').width;
+    cellH = cellW * ASPECT;
+    cols = Math.ceil(innerWidth / cellW);
+    rows = Math.ceil(innerHeight / cellH);
+  }
+
+  // One fillText per row per colour: far fewer draw calls than one per character.
+  function draw({ levels, owners }) {
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (let row = 0; row < rows; row++) {
+      const lines = new Map(); // style -> characters of this row in that style
+      for (let col = 0; col < cols; col++) {
+        const cell = row * cols + col;
+        const level = levels[cell];
+        if (!level) continue;
+        const style = STYLES[owners[cell]][level];
+        let line = lines.get(style);
+        if (!line) lines.set(style, (line = new Array(cols).fill(' ')));
+        line[col] = RAMP[level];
+      }
+      for (const [style, line] of lines) {
+        ctx.fillStyle = style;
+        ctx.fillText(line.join(''), 0, (row + 0.5) * cellH);
+      }
+    }
+    // The glow is a blurred copy of the frame, so each worm glows in its own colour.
+    glowCtx.clearRect(0, 0, glow.width, glow.height);
+    glowCtx.drawImage(canvas, 0, 0);
+  }
+
+  fit();
+  addEventListener('resize', fit);
+  const worms = Array.from({ length: count }, (_, i) => createWorm(cols, rows, i));
+  let last = performance.now();
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    for (const worm of worms) advance(worm, dt, cols, rows);
+    draw(render(worms, cols, rows));
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

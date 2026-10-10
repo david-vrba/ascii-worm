@@ -1,0 +1,20 @@
+{
+  "name": "ascii-worm",
+  "version": "1.0.0",
+  "description": "A 3D worm made of text characters that crawls over your terminal. Also runs in the browser.",
+  "bin": {
+    "worm": "worm.js"
+  },
+  "scripts": {
+    "start": "node worm.js",
+    "check": "node check.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": ["ascii", "ascii-art", "terminal", "cli", "animation", "worm", "3d"],
+  "author": "David Vrba",
+  "license": "MIT",
+  "repository": "github:david-vrba/ascii-worm",
+  "homepage": "https://david-vrba.github.io/ascii-worm/"
+}
