@@ -11,17 +11,13 @@ A 3D worm made of text characters that crawls over your terminal. It also runs i
 You need Node.js 16 or newer. There are no dependencies.
 
 ```bash
-npm install -g github:david-vrba/ascii-worm
+git clone https://github.com/david-vrba/ascii-worm
+cd ascii-worm
+npm install -g .
 worm
 ```
 
-Or run it from a clone:
-
-```bash
-git clone https://github.com/david-vrba/ascii-worm
-cd ascii-worm
-node worm.js
-```
+`npm install -g .` adds the `worm` command. To run it without installing, use `node worm.js` in the clone.
 
 ## Use
 
