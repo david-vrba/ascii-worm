@@ -22,8 +22,13 @@ A 3D worm drawn with ASCII characters. `worm.js` runs it in a terminal. `index.h
 node check.js                # must end with "check passed"
 node worm.js -h              # options and examples
 node worm.js -3 > frame.txt  # one 100x30 frame as plain text, for agents without a terminal
-python -m http.server 8765   # then open http://localhost:8765/ for the web version
 ```
+
+For the web version, open `index.html` in a browser. It needs no server.
+
+## Deploy
+
+Every push to `main` deploys the web version to https://worm.davidvrba.me (a Vercel project linked to this repo). There is no build step. Never commit `.env*` or `.vercel/`: the Vercel CLI writes a token there. Both are in `.gitignore` and `.vercelignore`.
 
 ## Rules
 
@@ -32,11 +37,11 @@ python -m http.server 8765   # then open http://localhost:8765/ for the web vers
 - Put shared behaviour (colours, sizes, shading) in `worm-core.js`. Then the terminal and web versions stay the same.
 - Sizes are in screen units: 1 unit is the shorter side of the screen. A terminal cell is 1 wide and 2 tall (`ASPECT`).
 - Never write the bottom-right terminal cell. Some terminals scroll when it is written.
-- `check.js` asserts that every head stays on screen. It also tests screen coverage and resize recovery. If you change steering or sizes, run it.
+- `check.js` asserts that the screen edge almost never cuts a body. It also tests coverage, crowding, tiny and zero sizes, and resize recovery. If you change steering or sizes, run it.
 
 ## Common changes
 
 - **Add a colour:** add a `name: [r, g, b]` entry to `COLORS` in `worm-core.js`. The help text lists it on its own. Add it to the colour list in `README.md`.
-- **Change the worm limit:** `MAX_WORMS` in `worm.js` and in `index.html`.
+- **Change the worm limit:** `MAX_WORMS` in `worm.js` and in `index.html`, plus one entry per count in `SIZE_BY_COUNT` in `worm-core.js`. `check.js` tests 1 and 3 worms. Add the new count there.
 - **Change the look:** `RADIUS`, `LENGTH`, `RING`, `LIGHT` and `AMBIENT` at the top of `worm-core.js`.
-- **Change the movement:** `SPEED`, `MAX_TURN`, `HOMING_TURN`, `LOOKAHEAD` and `wander()` in `worm-core.js`. Then run `node check.js`.
+- **Change the movement:** `SPEED`, `MAX_TURN`, `HOMING_TURN`, `LOOKAHEAD`, `EDGE`, `AHEAD_EDGE`, `SAFE`, `SEPARATION`, `BODY_SEPARATION` and `wander()` in `worm-core.js`. Then run `node check.js`.

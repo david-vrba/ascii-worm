@@ -18,7 +18,7 @@
 <canvas id="worm" role="img" aria-label="A worm made of text characters crawling across the screen"></canvas>
 <script src="worm-core.js"></script>
 <script>
-  const { RAMP, ASPECT, createWorm, advance, render, wormColors, shade } = window.WormCore;
+  const { RAMP, ASPECT, createWorms, advanceAll, render, wormColors, shade } = window.WormCore;
   const FONT_PX = 14;
   const MAX_WORMS = 3;
 
@@ -81,15 +81,16 @@
 
   fit();
   addEventListener('resize', fit);
-  const worms = Array.from({ length: count }, (_, i) => createWorm(cols, rows, i));
+  const worms = createWorms(cols, rows, count);
   let last = performance.now();
 
   function frame(now) {
+    requestAnimationFrame(frame); // first, so one bad frame never stops the animation
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    for (const worm of worms) advance(worm, dt, cols, rows);
+    if (cols < 1 || rows < 1) return; // a 0-size window: drawImage would throw
+    advanceAll(worms, dt, cols, rows);
     draw(render(worms, cols, rows));
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 </script>

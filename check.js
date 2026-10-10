@@ -1,59 +1,83 @@
-// check.js — sanity check for worm-core: the worm stays on screen, roams it, and comes back after a resize.
-// Run: node check.js
+// check.js — sanity check for worm-core: worms stay fully on screen, roam it, keep apart,
+// survive tiny and zero sizes, come back after a resize, and colours parse. Run: node check.js
 const assert = require('assert');
-const { createWorm, advance, render, screen, wormColors, COLORS } = require('./worm-core.js');
+const { RADIUS, createWorms, advanceAll, render, screen, wormColors, COLORS } = require('./worm-core.js');
 
-// The head counts as on screen while some of it is visible: its centre may skim past the edge by up to one body radius.
-const SKIM = 0.075;
-function headInside(worm, cols, rows) {
+// Distance from the closest point of a worm's centre line to the nearest screen edge, in screen units.
+function edgeGap(worm, cols, rows) {
+  const { width, height } = screen(cols, rows);
+  return Math.min(...worm.path.map(([x, y]) => Math.min(x, width - x, y, height - y)));
+}
+
+// The body counts as cut when the edge hides more than 40% of the tube's width.
+function bodyCut(worm, cols, rows) {
+  return edgeGap(worm, cols, rows) < 0.6 * RADIUS * worm.size;
+}
+
+function headGap(worm, cols, rows) {
   const { width, height } = screen(cols, rows);
   const [x, y] = worm.path[worm.path.length - 1];
-  return x >= -SKIM && x <= width + SKIM && y >= -SKIM && y <= height + SKIM;
+  return Math.min(x, width - x, y, height - y);
 }
 
 for (const [cols, rows] of [[160, 45], [80, 24], [60, 50], [240, 70]]) {
-  const worm = createWorm(cols, rows);
-  const seen = new Uint8Array(cols * rows);
-  let samples = 0;
-  let inside = 0;
-  for (let frame = 0; frame < 30 * 180; frame++) {
-    advance(worm, 1 / 30, cols, rows);
-    if (frame % 10) continue;
-    const { levels } = render([worm], cols, rows);
-    const lit = levels.reduce((n, level) => n + (level > 0), 0);
-    assert(lit > cols * rows * 0.03, `${cols}x${rows}: worm vanished (${lit} cells lit)`);
-    levels.forEach((level, i) => level && (seen[i] = 1));
-    samples++;
-    inside += headInside(worm, cols, rows);
+  for (const count of [1, 3]) {
+    const worms = createWorms(cols, rows, count);
+    const seen = new Uint8Array(cols * rows);
+    let samples = 0;
+    let cut = 0;
+    let shared = 0;
+    let lit = 0;
+    for (let frame = 0; frame < 30 * 180; frame++) {
+      advanceAll(worms, 1 / 30, cols, rows);
+      if (frame % 10) continue;
+      samples++;
+      cut += worms.some((worm) => bodyCut(worm, cols, rows));
+      const hits = new Uint8Array(cols * rows);
+      worms.forEach((worm) => render([worm], cols, rows).levels.forEach((level, i) => level && hits[i]++));
+      hits.forEach((n, i) => {
+        if (!n) return;
+        seen[i] = 1;
+        lit++;
+        if (n > 1) shared++;
+      });
+    }
+    const coverage = seen.reduce((n, v) => n + v, 0) / seen.length;
+    const label = `${cols}x${rows}, ${count} worm${count > 1 ? 's' : ''}`;
+    console.log(`${label}: body cut by an edge ${((100 * cut) / samples).toFixed(1)}% of frames, screen covered ${(100 * coverage).toFixed(0)}%` + (count > 1 ? `, overlap ${((100 * shared) / lit).toFixed(0)}%` : ''));
+    assert(cut / samples < 0.01, `${label}: the screen edge cuts the body too often`);
+    assert(coverage > 0.55, `${label}: worms do not roam the screen`);
+    if (count > 1) assert(shared / lit < 0.2, `${label}: worms are too crowded`);
   }
-  const coverage = seen.reduce((n, v) => n + v, 0) / seen.length;
-  console.log(`${cols}x${rows}: head on screen ${((100 * inside) / samples).toFixed(1)}%, screen covered ${(100 * coverage).toFixed(0)}%`);
-  assert(inside / samples > 0.99, 'head leaves the screen too often');
-  assert(coverage > 0.6, 'worm does not roam the screen');
 }
 
-// Shrink the terminal under the worm: the head must find its way back on screen.
-const worm = createWorm(240, 70);
-for (let i = 0; i < 30 * 20; i++) advance(worm, 1 / 30, 240, 70);
-let back = false;
-for (let i = 0; i < 30 * 10 && !back; i++) {
-  advance(worm, 1 / 30, 70, 20);
-  back = headInside(worm, 70, 20);
+// Shrink the terminal under the worms, mildly and to a sliver: every head must be back on screen within 10 s.
+for (const [cols, rows] of [[70, 20], [8, 60]]) {
+  const worms = createWorms(240, 70, 3);
+  for (let i = 0; i < 30 * 20; i++) advanceAll(worms, 1 / 30, 240, 70);
+  let back = false;
+  for (let i = 0; i < 30 * 10 && !back; i++) {
+    advanceAll(worms, 1 / 30, cols, rows);
+    back = worms.every((worm) => headGap(worm, cols, rows) > 0);
+  }
+  assert(back, `heads did not return after the terminal shrank to ${cols}x${rows}`);
 }
-assert(back, 'head did not return after the terminal shrank');
-console.log('resize: head returns on screen');
+console.log('resize: heads return on screen');
 
-// Three worms must each stay on screen too.
-const trio = [0, 1, 2].map((i) => createWorm(160, 45, i));
-let trioInside = 0;
-for (let i = 0; i < 30 * 120; i++) {
-  trio.forEach((w) => advance(w, 1 / 30, 160, 45));
-  trioInside += trio.every((w) => headInside(w, 160, 45));
+// Tiny, zero and portrait sizes: nothing throws, and no position turns into NaN, even after a 0x0 frame.
+for (const [cols, rows] of [[0, 0], [0, 24], [1, 1], [10, 5], [20, 80]]) {
+  const worms = createWorms(cols, rows, 3);
+  for (let i = 0; i < 30 * 5; i++) advanceAll(worms, 1 / 30, cols, rows);
+  render(worms, cols, rows);
+  for (let i = 0; i < 30 * 5; i++) advanceAll(worms, 1 / 30, 80, 24);
+  assert(worms.every((worm) => worm.path.every((p) => p.every(Number.isFinite))), `NaN after ${cols}x${rows}`);
 }
-assert(trioInside / (30 * 120) > 0.97, 'one of three worms leaves the screen too often');
-const trioFrame = render(trio, 160, 45);
-assert.deepStrictEqual(new Set(trioFrame.owners.filter((_, i) => trioFrame.levels[i])), new Set([0, 1, 2]), 'not all three worms are drawn');
-console.log(`three worms: all heads on screen ${((100 * trioInside) / (30 * 120)).toFixed(1)}%`);
+console.log('tiny and zero sizes: no crash, no NaN');
+
+// All three worms are drawn.
+const trio = createWorms(160, 45, 3);
+const frame = render(trio, 160, 45);
+assert.deepStrictEqual(new Set(frame.owners.filter((_, i) => frame.levels[i])), new Set([0, 1, 2]), 'not all three worms are drawn');
 
 // Colours: names, hex with or without #, lists that repeat, and a clear error for typos.
 assert.deepStrictEqual(wormColors('', 3), [COLORS.red, COLORS.purple, COLORS.cyan]);

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // worm.js — the ASCII worm, full screen in the terminal. Run `worm -h` for options.
 // When stdout is not a terminal (a pipe, a file, an AI agent) it prints one plain frame and exits.
-const { RAMP, COLORS, createWorm, advance, render, wormColors, shade } = require('./worm-core.js');
+const fs = require('fs');
+const { RAMP, COLORS, createWorms, advanceAll, render, wormColors, shade } = require('./worm-core.js');
 
 const FPS = 30;
 const MAX_WORMS = 3;
@@ -51,7 +52,7 @@ function parseArgs(argv) {
       while (i + 1 < argv.length && !argv[i + 1].startsWith('-')) list.push(argv[++i]);
       if (!list.length) fail(`${arg} needs a colour, for example: worm ${arg} purple`);
       opts.colors = list.join(',');
-    } else if (/^-?\d+$/.test(arg)) opts.count = Math.min(MAX_WORMS, Math.max(1, Math.abs(Number(arg))));
+    } else if (/^-\d+$/.test(arg)) opts.count = Math.min(MAX_WORMS, Math.max(1, -Number(arg)));
     else fail(`unknown option "${arg}"`);
   }
   return opts;
@@ -76,15 +77,18 @@ if (!out.isTTY) {
   process.exit(0);
 }
 
+// Written synchronously: on Windows a pipe write is async and process.exit would cut it short.
 function printSnapshot() {
   const [cols, rows] = SNAPSHOT_SIZE;
-  const worms = Array.from({ length: opts.count }, (_, i) => createWorm(cols, rows, i));
+  const worms = createWorms(cols, rows, opts.count);
   const { levels } = render(worms, cols, rows);
+  let text = '';
   for (let row = 0; row < rows; row++) {
     let line = '';
     for (let col = 0; col < cols; col++) line += RAMP[levels[row * cols + col]];
-    out.write(line.trimEnd() + '\n');
+    text += line.trimEnd() + '\n';
   }
+  fs.writeSync(out.fd, text);
 }
 
 // Windows Terminal and most modern terminals do 24-bit colour; over ssh the env hint is often lost, so fall back to 256.
@@ -126,7 +130,7 @@ function frameText({ levels, owners }, cols, rows) {
 
 const input = process.stdin;
 let [cols, rows] = out.getWindowSize();
-const worms = Array.from({ length: opts.count }, (_, i) => createWorm(cols, rows, i));
+const worms = createWorms(cols, rows, opts.count);
 let last = performance.now();
 let waiting = false; // true while a slow terminal (ssh) is still taking the previous frame
 
@@ -135,7 +139,7 @@ function tick() {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   const [c, r] = out.getWindowSize();
-  for (const worm of worms) advance(worm, dt, c, r);
+  advanceAll(worms, dt, c, r);
   if (waiting) return;
   let text = '';
   if (c !== cols || r !== rows) {
@@ -148,10 +152,21 @@ function tick() {
   if (waiting) out.once('drain', () => (waiting = false));
 }
 
+// Reset colour, show the cursor, leave the alternate screen. Synchronous, so it also works
+// on the way out of a crash.
+function restoreTerminal() {
+  try {
+    fs.writeSync(out.fd, '\x1b[0m\x1b[?25h\x1b[?1049l');
+  } catch {
+    // the terminal is already gone
+  }
+}
+
 function quit() {
   clearInterval(timer);
   if (input.isTTY) input.setRawMode(false);
-  out.write('\x1b[0m\x1b[?25h\x1b[?1049l', () => process.exit(0));
+  restoreTerminal();
+  process.exit(0);
 }
 
 out.write('\x1b[?1049h\x1b[?25l\x1b[2J'); // alternate screen, hide cursor
@@ -165,4 +180,10 @@ if (input.isTTY) {
 process.on('SIGINT', quit);
 process.on('SIGTERM', quit);
 process.on('SIGHUP', () => process.exit(0));
+out.on('error', () => process.exit(0)); // the terminal closed (EPIPE)
+process.on('uncaughtException', (error) => {
+  restoreTerminal();
+  console.error(error);
+  process.exit(1);
+});
 const timer = setInterval(tick, 1000 / FPS);
